@@ -19,6 +19,8 @@ import static net.openid.appauth.AdditionalParamsProcessor.builtInParams;
 import android.net.Uri;
 import android.text.TextUtils;
 import android.util.Base64;
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -204,12 +206,13 @@ public class IdToken {
 
     @VisibleForTesting
     void validate(@NonNull TokenRequest tokenRequest, Clock clock) throws AuthorizationException {
-        validate(tokenRequest, clock, false);
+        validate(tokenRequest, clock, false, false);
     }
 
     void validate(@NonNull TokenRequest tokenRequest,
                   Clock clock,
-                  boolean skipIssuerHttpsCheck) throws AuthorizationException {
+                  boolean skipIssuerHttpsCheck,
+                  boolean skipLocalExpirationCheck) throws AuthorizationException {
         // OpenID Connect Core Section 3.1.3.7. rule #1
         // Not enforced: AppAuth does not support JWT encryption.
 
@@ -219,6 +222,7 @@ public class IdToken {
         if (discoveryDoc != null) {
             String expectedIssuer = discoveryDoc.getIssuer();
             if (!this.issuer.equals(expectedIssuer)) {
+                Log.v("ID TOKEN VALIDATION", "Issuer Mismatch");
                 throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                     new IdTokenException("Issuer mismatch"));
             }
@@ -230,16 +234,22 @@ public class IdToken {
             Uri issuerUri = Uri.parse(this.issuer);
 
             if (!skipIssuerHttpsCheck && !issuerUri.getScheme().equals("https")) {
+                Log.v("ID TOKEN VALIDATION", "Issuer must be https url");
+
                 throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                     new IdTokenException("Issuer must be an https URL"));
             }
 
             if (TextUtils.isEmpty(issuerUri.getHost())) {
+                Log.v("ID TOKEN VALIDATION", "Empty issuer host");
+
                 throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                     new IdTokenException("Issuer host can not be empty"));
             }
 
             if (issuerUri.getFragment() != null || issuerUri.getQueryParameterNames().size() > 0) {
+                Log.v("ID TOKEN VALIDATION", "Issuer url contains params/fragments");
+
                 throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                     new IdTokenException(
                         "Issuer URL should not containt query parameters or fragment components"));
@@ -252,6 +262,8 @@ public class IdToken {
         // (authorized party) Claim matches the client ID.
         String clientId = tokenRequest.clientId;
         if (!this.audience.contains(clientId) && !clientId.equals(this.authorizedParty)) {
+            Log.v("ID TOKEN VALIDATION", "Audience Mismatch");
+
             throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                 new IdTokenException("Audience mismatch"));
         }
@@ -271,15 +283,19 @@ public class IdToken {
         // OpenID Connect Core Section 3.1.3.7. rule #9
         // Validates that the current time is before the expiry time.
         Long nowInSeconds = clock.getCurrentTimeMillis() / MILLIS_PER_SECOND;
-        if (nowInSeconds > this.expiration) {
+        if (!skipLocalExpirationCheck && nowInSeconds > this.expiration) {
+            Log.v("ID TOKEN VALIDATION", "token expired");
+
             throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
-                new IdTokenException("ID Token expired"));
+                new IdTokenException ("ID Token expired"));
         }
 
         // OpenID Connect Core Section 3.1.3.7. rule #10
         // Validates that the issued at time is not more than +/- 10 minutes on the current
         // time.
-        if (Math.abs(nowInSeconds - this.issuedAt) > TEN_MINUTES_IN_SECONDS) {
+        if (!skipLocalExpirationCheck && Math.abs(nowInSeconds - this.issuedAt) > TEN_MINUTES_IN_SECONDS) {
+            Log.v("ID TOKEN VALIDATION", "iss time > < 10 min window");
+
             throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                 new IdTokenException("Issued at time is more than 10 minutes "
                     + "before or after the current time"));
@@ -291,6 +307,8 @@ public class IdToken {
             // Validates the nonce.
             String expectedNonce = tokenRequest.nonce;
             if (!TextUtils.equals(this.nonce, expectedNonce)) {
+                Log.v("ID TOKEN VALIDATION", "Missing nonce");
+
                 throw AuthorizationException.fromTemplate(GeneralErrors.ID_TOKEN_VALIDATION_ERROR,
                     new IdTokenException("Nonce mismatch"));
             }

@@ -27,6 +27,8 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.text.TextUtils;
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -710,7 +712,8 @@ public class AuthorizationService {
                     idToken.validate(
                             mRequest,
                             mClock,
-                            mSkipIssuerHttpsCheck
+                            mSkipIssuerHttpsCheck,
+                        true
                     );
                 } catch (AuthorizationException ex) {
                     mCallback.onTokenRequestCompleted(null, ex);
